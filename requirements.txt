@@ -1,2 +1,5 @@
 vllm
 datasets
+huggingface
+tensorboard
+httpx

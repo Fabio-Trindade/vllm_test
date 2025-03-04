@@ -1,8 +1,8 @@
 #! /bin/bash
-BASE_DIR=/mnt/llama.cpp/llama2-7B-hf/
+BASE_DIR=/home/fabio.ramos/vllm_test
 tb_base_dir=./tensorboard_logs/
 
-model=facebook/opt-125M
+model=./llama/Llama-2-7B-hf-F16.gguf
 
-python3 cached_vs_uncached_experiment.py --enable_cache --model $model  --tokenizer_path ${BASE_DIR} --tensorboard_log_pathname ${tb_base_dir}cached/
-python3 cached_vs_uncached_experiment.py --model $model --tokenizer_path ${BASE_DIR} --tensorboard_log_pathname ${tb_base_dir}uncached/
+python3 cached_vs_uncached_experiment.py --enable_cache --model $model  --tokenizer_path ${BASE_DIR}/llama --tensorboard_log_pathname ${tb_base_dir}cached/
+python3 cached_vs_uncached_experiment.py --model $model --tokenizer_path ${BASE_DIR}/llama --tensorboard_log_pathname ${tb_base_dir}uncached/

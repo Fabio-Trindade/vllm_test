@@ -33,6 +33,7 @@ tokenizer_path = args.tokenizer_path
 llm = LLM(
     model=model_path,
     task="generate",
+    tokenizer=tokenizer_path,
     enable_prefix_caching=args.enable_cache,  
 )
 
@@ -51,10 +52,7 @@ while batch_size < len(prompts):
     throughput = num_tokens / elapsed_time
 
     writer.add_scalar("time_vs_batch_size", final_time - init_time, batch_size)
-    writer.add_scalar("throughput_vs_batch_size", final_time - init_time, batch_size)
-
-    # batch_size *= 2
-    # if batch_size > 1:
-    #     break
+    writer.add_scalar("throughput_vs_batch_size", throughput, batch_size)
+    batch_size *= 2
 
 writer.close()
