@@ -1,6 +1,6 @@
 #! /bin/bash
 BASE_DIR=/home/fabio.ramos/vllm_test
-tb_base_dir=./tensorboard_logs/
+tb_base_dir=./results/tensorboard_logs/
 
 model=./llama/Llama-2-7B-hf-F16.gguf
 

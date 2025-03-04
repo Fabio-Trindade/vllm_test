@@ -3,3 +3,4 @@ datasets
 huggingface
 tensorboard
 httpx
+gputil

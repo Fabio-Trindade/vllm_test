@@ -3,10 +3,11 @@ from vllm import LLM, SamplingParams
 from datasets import load_dataset
 import os
 from torch.utils.tensorboard import SummaryWriter
-parser = argparse.ArgumentParser(description="")
 import time
 import sys
 import io
+from utils import create_dir
+parser = argparse.ArgumentParser(description="")
 
 parser.add_argument("--enable_cache", action="store_true", help="")
 parser.add_argument("--model", help="")
@@ -17,9 +18,7 @@ args = parser.parse_args()
 
 tensorboard_log_path = args.tensorboard_log_pathname
 
-if not os.path.exists(tensorboard_log_path):
-    os.makedirs(tensorboard_log_path)
-
+create_dir(tensorboard_log_path)
 
 ds = load_dataset("fka/awesome-chatgpt-prompts")
 
