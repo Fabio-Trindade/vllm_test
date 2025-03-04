@@ -12,6 +12,7 @@ parser.add_argument("--time", type=int, default=60, help="")
 parser.add_argument("--sleep_time", type=float, default=0.1, help="")
 args = parser.parse_args()
 
+
 ds = load_dataset("fka/awesome-chatgpt-prompts")
 prompts = ds["train"]['prompt']
 vllm_server_url = "http://localhost:8000/v1/completions"
@@ -33,7 +34,6 @@ async def send_data(prompts, client, max_tokens):
         "max_tokens": max_tokens,
         "stream": False
     }
-
     try:
         response = await client.post(vllm_server_url, json=request)
         response_json = response.json()
@@ -53,8 +53,8 @@ async def main():
         init_time = time.time()
         elapsed_time = 0
         tasks = []
-
         while elapsed_time < args.time:
+
             for _ in range(args.num_threads):
                 tasks.append(asyncio.create_task(send_data(prompts, client, max_tokens=512)))
             
@@ -70,8 +70,11 @@ total_time = time.time() - init_time
 throughput = total_processed_tokens / total_time
 inter_token_latency = 1 / throughput
 
+print()
 print("Processed tokens:", total_processed_tokens)
 print("Total time:", total_time)
 print("Throughput (tokens/sec):", throughput)
 print("Inter-token latency (sec/token):", inter_token_latency)
 print("Total requests:", total_requests)
+print("req/sec:", total_requests/total_time)
+
