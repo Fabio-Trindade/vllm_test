@@ -50,8 +50,6 @@ def calc_pct_reused_blocks(tokenizer, prompts, block_size):
             total_blocks += 1
             final_idx = min(start_idx + block_size, prompt_len)
             cur_string += ' '.join(map(str, real_prompt[start_idx:final_idx])) + ' '
-            print(start_idx, final_idx, block_size, prompt_len,cur_string)
-            input()
             cur_hash = hash_string_sha256(cur_string)
             hashes.add(cur_hash)
     return (total_blocks - len(hashes)) / total_blocks
@@ -116,7 +114,6 @@ for block_size in [2**i for i in range(5,9)]:
 
             if enable_apc:
                 pct_reused_blocks = calc_pct_reused_blocks(tokenizer, cur_prompts, block_size)
-                print(prompt_idx, pct_reused_blocks)
                 writer.add_scalar("latency(s)_vs_reused_blocks(%)", elapsed_time, pct_reused_blocks)
                 writer.add_scalar("throughput(tok/s)_vs_reused_blocks(%)", throughput, pct_reused_blocks)
 
