@@ -59,14 +59,15 @@ ds = load_dataset("fka/awesome-chatgpt-prompts")
 prompts = ds["train"]['prompt']
 
 all_prompt_idx = []
-batch_size = 1
 random.seed(1234)
-while batch_size <= 512:
+
+batch_size = 1
+while batch_size <= 2048:
     idxs = [random.randint(0, len(prompts) - 1) for _ in range(batch_size)]
     all_prompt_idx.append(idxs)
     batch_size *= 2
 
-pct_reused_prompts_list = dict([[len(prompt_idxs),calc_pct_reused_prompts(prompt_idxs)] for i,prompt_idxs in enumerate(all_prompt_idx)])
+pct_reused_prompts_list = dict([[len(prompt_idxs), calc_pct_reused_prompts(prompt_idxs)] for i,prompt_idxs in enumerate(all_prompt_idx)])
 
 print("Batch size -> Pct reused prompts:")
 print(pct_reused_prompts_list)
@@ -76,34 +77,27 @@ root_dir = "results/"
 
 dir_list = ["cached", "uncached"]
 
-def configure_launcher(block_size):
-    enable_apc = (block_size != 0)
+def configure_launcher(enable_apc,final_path = ""):
 
     llm = LLM(
         model=args.model,
         task="generate",
         tokenizer=args.tokenizer_path,
         enable_prefix_caching=enable_apc,
-        block_size=block_size if enable_apc else None
     )
 
-    writer = SummaryWriter(f"{root_dir}tensorboard_logs/{'cached' if enable_apc else 'uncached' }/block_size_{block_size if enable_apc else '0'}/")
+    writer = SummaryWriter(f"{root_dir}tensorboard_logs/{'cached' if enable_apc else 'uncached' }/{final_path}")
     stop_event = threading.Event()
     thread = threading.Thread(target=monitor_gpu_memory, args=(writer, stop_event))
     thread.start()
-    return llm, writer, thread, enable_apc, stop_event
+    return llm, writer, thread, stop_event
 
-for block_size in [0] + [2**i for i in range(5,8)]:
-    llm, writer, thread, enable_apc,event = configure_launcher(block_size)
-    pct_reused_blocks_list = []
-    lats = []
-    ths = []
-
+for enable_apc in [False, True]:
+    llm, writer, thread ,event = configure_launcher(enable_apc)
+    writer.add_text("pct_reused_prompts", str(pct_reused_prompts_list))
     for prompt_idx in all_prompt_idx:
         batch_size = len(prompt_idx)
         cur_prompts = [prompts[i] for i in prompt_idx]
-
-        pct_reused_prompts = pct_reused_prompts_list[len(prompt_idx)]
 
         init_time = time.time()
         outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
@@ -116,65 +110,8 @@ for block_size in [0] + [2**i for i in range(5,8)]:
         writer.add_scalar("latency(s)_vs_batch_size", elapsed_time, batch_size)
         writer.add_scalar("throughput(tok/s)_vs_batch_size", throughput, batch_size)
 
-        if enable_apc:
-            pct_reused_blocks = calc_pct_reused_blocks(tokenizer, cur_prompts, block_size)
-            pct_reused_blocks_list.append(pct_reused_blocks)
-            lats.append(elapsed_time)
-            ths.append(throughput)
-            print()
-            print(pct_reused_blocks)
-            print()
-    
-    if enable_apc:
-        fig, ax1 = plt.subplots()
-        ax1.set_xlabel("Reused blocks (%)")
-        ax1.set_ylabel("Latency (s)", color="tab:red")
-        ax1.plot(pct_reused_blocks_list, lats, "ro-", label="Latency")
-        ax1.tick_params(axis="y", labelcolor="tab:red")
-
-        ax2 = ax1.twinx()
-        ax2.set_ylabel("Throughput (tokens/s)", color="tab:blue")
-        ax2.plot(pct_reused_blocks_list, ths, "bo-", label="Throughput")
-        ax2.tick_params(axis="y", labelcolor="tab:blue")
-
-        fig.tight_layout()
-
-        writer.add_figure("latency_vs_reused_blocks", fig)
     event.set()
     thread.join()
     writer.close()
     del llm  
     torch.cuda.empty_cache()
-
-for block_size in [0,2^9]:
-    batch_size = 1
-    llm, writer, thread, enable_apc,event = configure_launcher(block_size)
-    pct_reused_prompts_list = []
-    while batch_size <= 1501:
-        idxs = [random.randint(0, batch_size - 1) for _ in range(batch_size)]
-        pct_reused_prompts_list.append(calc_pct_reused_prompts(idxs))
-        all_prompt_idx.append(idxs)
-        batch_size += 50
-
-    fig, ax1 = plt.subplots()
-
-    ax1.set_xlabel("Reused prompts (%)")
-    ax1.set_ylabel("Latency (s)", color="tab:red")
-    ax1.plot(pct_reused_prompts_list, lats, "ro-", label="Latency")
-    ax1.tick_params(axis="y", labelcolor="tab:red")
-
-    ax2 = ax1.twinx()
-    ax2.set_ylabel("Throughput (tokens/s)", color="tab:blue")
-    ax2.plot(pct_reused_prompts_list, ths, "bo-", label="Throughput")
-    ax2.tick_params(axis="y", labelcolor="tab:blue")
-
-    fig.tight_layout()
-
-    writer.add_figure("latency_vs_reused_blocks", fig)
-
-    event.set()
-    thread.join()
-    writer.close()
-    del llm  
-    torch.cuda.empty_cache()
-
