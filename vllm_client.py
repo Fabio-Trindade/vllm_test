@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser(description="Request data to LLM server")
 parser.add_argument("--model", type=str, required=True, help="The model to use for requests")
 parser.add_argument("--time", type=int, default=60, help="Total time for requests in seconds")
 parser.add_argument("--sleep-time", type=float, default=0.1, help="Sleep time between requests")
-parser.add_argument("--using_chunked_prefill", action="store_true", required=True, help="")
+parser.add_argument("--using_chunked_prefill", action="store_true", help="")
 
 
 
