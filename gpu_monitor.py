@@ -15,6 +15,7 @@ tensorboard_log_path = args.tensorboard_log_pathname
 
 create_dir(tensorboard_log_path)
 writer = SummaryWriter(tensorboard_log_path)
+writer.add_text("")
 
 def monitor_gpu_memory(interval = 1):
     step = 0 
