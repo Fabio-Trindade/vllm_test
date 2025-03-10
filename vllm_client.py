@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser(description="Request data to LLM server")
 parser.add_argument("--model", type=str, required=True, help="The model to use for requests")
 parser.add_argument("--time", type=int, default=60, help="Total time for requests in seconds")
 parser.add_argument("--sleep-time", type=float, default=0.1, help="Sleep time between requests")
+parser.add_argument("--using_chunked_prefill", action="store_true", required=True, help="")
+
 
 
 args = parser.parse_args()
@@ -84,35 +86,34 @@ async def main(num_threads):
         await asyncio.gather(*tasks)
 
 nt = 5
-for use_chunked_prefill in [True,False]:
-    writer = SummaryWriter(f"results/tensorboard_logs/{"chunked_prefill" if use_chunked_prefill else "wo_chunked_prefill"}/")
-    for batch_size in tqdm([2**k for k in range(12)]):
-        total_requests = 0
-        total_processed_tokens = 0
-        inter_token_latencies = [] 
-        batched_prompts = [[prompts[random.randint(0, len(prompts) - 1)] for i in range(batch_size)] for j in range(50)]
+writer = SummaryWriter(f"results/tensorboard_logs/{"chunked_prefill" if args.using_chunked_prefill else "wo_chunked_prefill"}/")
+for batch_size in tqdm([2**k for k in range(12)]):
+    total_requests = 0
+    total_processed_tokens = 0
+    inter_token_latencies = [] 
+    batched_prompts = [[prompts[random.randint(0, len(prompts) - 1)] for i in range(batch_size)] for j in range(50)]
 
-        init_time = time.time()
-        asyncio.run(main(nt))
+    init_time = time.time()
+    asyncio.run(main(nt))
 
-        total_time = time.time() - init_time
-        throughput = total_processed_tokens / total_time 
-        inter_token_latencies = np.array(inter_token_latencies)
-        mean_inter_token_latency = inter_token_latencies.mean()
-        ITL_median = np.median(inter_token_latencies)
-        prompts_per_sec = total_requests*batch_size / total_time
-        latency = total_time 
+    total_time = time.time() - init_time
+    throughput = total_processed_tokens / total_time 
+    inter_token_latencies = np.array(inter_token_latencies)
+    mean_inter_token_latency = inter_token_latencies.mean()
+    ITL_median = np.median(inter_token_latencies)
+    prompts_per_sec = total_requests*batch_size / total_time
+    latency = total_time 
 
-        # print()
-        # print(f"Threads: {nt}")
-        # print("Throughput (tokens/sec):", throughput)
-        # print("Average Inter-token latency (sec/token):", mean_inter_token_latency)
-        # print("ITL median:", ITL_median)
+    # print()
+    # print(f"Threads: {nt}")
+    # print("Throughput (tokens/sec):", throughput)
+    # print("Average Inter-token latency (sec/token):", mean_inter_token_latency)
+    # print("ITL median:", ITL_median)
 
-        writer.add_scalar("Throughput (tokens/sec) vs Batch Size", throughput, batch_size)
-        writer.add_scalar("Avg ITL (s/token) vs Batch Size", mean_inter_token_latency, batch_size)
-        writer.add_scalar("Median ITL (s/token) vs Batch Size", ITL_median, batch_size)
-        writer.add_scalar("Prompts/sec vs Batch Size", prompts_per_sec, batch_size)
-        writer.add_scalar("Latency vs Batch Size", total_time, batch_size)
-    writer.close()
+    writer.add_scalar("Throughput (tokens/sec) vs Batch Size", throughput, batch_size)
+    writer.add_scalar("Avg ITL (s/token) vs Batch Size", mean_inter_token_latency, batch_size)
+    writer.add_scalar("Median ITL (s/token) vs Batch Size", ITL_median, batch_size)
+    writer.add_scalar("Prompts/sec vs Batch Size", prompts_per_sec, batch_size)
+    writer.add_scalar("Latency vs Batch Size", total_time, batch_size)
+writer.close()
 
