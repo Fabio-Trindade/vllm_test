@@ -15,13 +15,7 @@ from transformers import AutoTokenizer
 import torch
 import matplotlib.pyplot as plt
 
-parser = argparse.ArgumentParser(description="")
-parser.add_argument("--model", help="")
-parser.add_argument("--tokenizer_path", help="")
 
-args = parser.parse_args()
-
-tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
 
 def monitor_gpu_memory(writer, stop_event):
     step = 0 
@@ -57,29 +51,9 @@ def calc_pct_reused_blocks(tokenizer, prompts, block_size):
             hashes.add(cur_hash)
     return (total_blocks - len(hashes)) / total_blocks
 
-ds = load_dataset("fka/awesome-chatgpt-prompts")
-prompts = ds["train"]['prompt']
 
-all_prompt_idx = []
-random.seed(1234)
 
-batch_size = 1
-while batch_size <= 2048:
-    idxs = [random.randint(0, len(prompts) - 1) for _ in range(batch_size)]
-    all_prompt_idx.append(idxs)
-    batch_size *= 2
-
-pct_reused_prompts_list = dict([[len(prompt_idxs), calc_pct_reused_prompts(prompt_idxs)] for i,prompt_idxs in enumerate(all_prompt_idx)])
-
-print("Batch size -> Pct reused prompts:")
-print(pct_reused_prompts_list)
-print()
-
-root_dir = "results/"
-
-dir_list = ["cached", "uncached"]
-
-def configure_launcher(enable_apc,final_path = ""):
+def configure_launcher(args,enable_apc,final_path = ""):
 
     llm = LLM(
         model=args.model,
@@ -93,28 +67,59 @@ def configure_launcher(enable_apc,final_path = ""):
     thread = threading.Thread(target=monitor_gpu_memory, args=(writer, stop_event))
     thread.start()
     return llm, writer, thread, stop_event
+def get_args():
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument("--model", help="")
+    parser.add_argument("--tokenizer_path", help="")
 
-for enable_apc in [False, True]:
-    llm, writer, thread ,event = configure_launcher(enable_apc,"dynamic_batch/")
-    writer.add_text("pct_reused_prompts", str(pct_reused_prompts_list))
-    for prompt_idx in all_prompt_idx:
-        batch_size = len(prompt_idx)
-        cur_prompts = [prompts[i] for i in prompt_idx]
+    return parser.parse_args()
 
-        init_time = time.time()
-        outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
-        final_time = time.time()
 
-        num_tokens = sum(len(out.outputs[0].token_ids) for out in outputs)
-        elapsed_time = final_time - init_time
-        throughput = num_tokens / elapsed_time
+if __name__ == "__main__":
+    args = get_args()
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
 
-        writer.add_scalar("latency(s)_vs_batch_size", elapsed_time, batch_size)
-        writer.add_scalar("throughput(tok/s)_vs_batch_size", throughput, batch_size)
+    ds = load_dataset("fka/awesome-chatgpt-prompts")
+    prompts = ds["train"]['prompt']
 
-    event.set()
-    thread.join()
-    writer.close()
-    del llm  
-    torch.cuda.empty_cache()
+    all_prompt_idx = []
+    random.seed(1234)
+
+    batch_size = 1
+    while batch_size <= 2048:
+        idxs = [random.randint(0, len(prompts) - 1) for _ in range(batch_size)]
+        all_prompt_idx.append(idxs)
+        batch_size *= 2
+
+    pct_reused_prompts_list = dict([[len(prompt_idxs), calc_pct_reused_prompts(prompt_idxs)] for i,prompt_idxs in enumerate(all_prompt_idx)])
+
+    print("Batch size -> Pct reused prompts:")
+    print(pct_reused_prompts_list)
+    print()
+
+    root_dir = "results/"
+
+    for enable_apc in [False, True]:
+        llm, writer, thread ,event = configure_launcher(args, enable_apc,"dynamic_batch/")
+        writer.add_text("pct_reused_prompts", str(pct_reused_prompts_list))
+        for prompt_idx in all_prompt_idx:
+            batch_size = len(prompt_idx)
+            cur_prompts = [prompts[i] for i in prompt_idx]
+
+            init_time = time.time()
+            outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
+            final_time = time.time()
+
+            num_tokens = sum(len(out.outputs[0].token_ids) for out in outputs)
+            elapsed_time = final_time - init_time
+            throughput = num_tokens / elapsed_time
+
+            writer.add_scalar("latency(s)_vs_batch_size", elapsed_time, batch_size)
+            writer.add_scalar("throughput(tok/s)_vs_batch_size", throughput, batch_size)
+
+        event.set()
+        thread.join()
+        writer.close()
+        del llm  
+        torch.cuda.empty_cache()
 
