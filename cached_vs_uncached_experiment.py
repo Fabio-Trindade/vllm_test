@@ -122,10 +122,10 @@ tenk_ds = load_dataset("data-is-better-together/10k_prompts_ranked")
 
 for enable_apc in [False, True]:
     for batch_size in [2^i for i in range(4,12)]:
-        twok_prompts = ds["train"]['prompt'][:batch_size]
+        cur_prompts = tenk_ds["train"]['prompt'][:batch_size]
         llm, writer, thread ,event = configure_launcher(enable_apc,f"constant_batch_{batch_size}/")
         for i in range(batch_size):
-            twok_prompts[i] = twok_prompts[0]
+            cur_prompts[i] = cur_prompts[0]
             init_time = time.time()
             outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
             final_time = time.time()
