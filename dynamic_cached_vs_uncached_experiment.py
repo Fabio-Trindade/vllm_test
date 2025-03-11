@@ -54,6 +54,8 @@ def calc_pct_reused_blocks(tokenizer, prompts, block_size):
 
 
 def configure_launcher(args,enable_apc,final_path = ""):
+    root_dir = "results/"
+
 
     llm = LLM(
         model=args.model,
@@ -97,7 +99,6 @@ if __name__ == "__main__":
     print(pct_reused_prompts_list)
     print()
 
-    root_dir = "results/"
 
     for enable_apc in [False, True]:
         llm, writer, thread ,event = configure_launcher(args, enable_apc,"dynamic_batch/")
