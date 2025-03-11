@@ -118,7 +118,7 @@ for enable_apc in [False, True]:
     del llm  
     torch.cuda.empty_cache()
 
-tenk_ds = load_dataset("https://huggingface.co/datasets/data-is-better-together/10k_prompts_ranked")
+tenk_ds = load_dataset("data-is-better-together/10k_prompts_ranked")
 
 for enable_apc in [False, True]:
     for batch_size in [2^i for i in range(4,12)]:
