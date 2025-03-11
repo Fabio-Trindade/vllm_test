@@ -14,9 +14,11 @@ import GPUtil
 from transformers import AutoTokenizer  
 import torch
 import matplotlib.pyplot as plt
+
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--model", help="")
 parser.add_argument("--tokenizer_path", help="")
+
 args = parser.parse_args()
 
 tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
@@ -93,7 +95,7 @@ def configure_launcher(enable_apc,final_path = ""):
     return llm, writer, thread, stop_event
 
 for enable_apc in [False, True]:
-    llm, writer, thread ,event = configure_launcher(enable_apc)
+    llm, writer, thread ,event = configure_launcher(enable_apc,"dynamic_batch/")
     writer.add_text("pct_reused_prompts", str(pct_reused_prompts_list))
     for prompt_idx in all_prompt_idx:
         batch_size = len(prompt_idx)
@@ -115,3 +117,30 @@ for enable_apc in [False, True]:
     writer.close()
     del llm  
     torch.cuda.empty_cache()
+
+tenk_ds = load_dataset("https://huggingface.co/datasets/data-is-better-together/10k_prompts_ranked")
+
+for enable_apc in [False, True]:
+    for batch_size in [2^i for i in range(4,12)]:
+        llm, writer, thread ,event = configure_launcher(enable_apc,f"constant_batch_{twok_prompts}/")
+        twok_prompts = ds["train"]['prompt'][:batch_size]
+        for i in range(batch_size):
+            twok_prompts[i] = twok_prompts[0]
+            init_time = time.time()
+            outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
+            final_time = time.time()
+
+            num_tokens = sum(len(out.outputs[0].token_ids) for out in outputs)
+            elapsed_time = final_time - init_time
+            throughput = num_tokens / elapsed_time
+
+            writer.add_scalar("latency(s)_vs_batch_size", elapsed_time, i)
+            writer.add_scalar("throughput(tok/s)_vs_batch_size", throughput, i)
+
+        event.set()
+        thread.join()
+        writer.close()
+        del llm  
+        torch.cuda.empty_cache()
+
+
