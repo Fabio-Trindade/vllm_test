@@ -5,13 +5,12 @@ import time
 import random
 from datasets import load_dataset
 import traceback
-import matplotlib.pyplot as plt
-import csv
-import os
-from torch.utils.tensorboard import SummaryWriter
 import numpy as np
-from tqdm import tqdm
 import json
+from threading import Thread, Lock
+import queue
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser(description="Request data to LLM server")
 parser.add_argument("--model", type=str, required=True, help="The model to use for requests")
@@ -21,17 +20,49 @@ parser.add_argument("--using_chunked_prefill", action="store_true", help="Enable
 
 args = parser.parse_args()
 
-ds = load_dataset("fka/awesome-chatgpt-prompts")
+
+ds = load_dataset("data-is-better-together/10k_prompts_ranked")
 prompts = ds["train"]['prompt']
 vllm_server_url = "http://localhost:8000/v1/completions"
-seed = 1234
-random.seed(seed)
+random.seed(1234)
 
-lock = asyncio.Lock()
+metrics_lock = Lock()
+async_metrics_lock = asyncio.Lock()  
 
-async def send_data(batched_prompts, client, max_tokens, valid_requests, invalid_requests, total_processed_tokens, inter_token_latencies, ttfts):
-    prompts = random.choice(batched_prompts)
+def init_metrics(id, metrics):
+    metrics[id] = {
+        "init_time": None,
+        "final_time": None,
+        "ITLs": [],
+        "TTFT": None,
+        "num_tokens": None,
+    }
+
+def send_data(metrics, q: queue.Queue, prompts, sleep_time, finish):
+    id = 0
+    while not finish[0]:
+        prompt = random.choice(prompts)
+        if len(prompt) > 2048:
+            continue
+        with metrics_lock: 
+            init_metrics(id, metrics)
+            metrics[id]["num_tokens"] = len(prompt)
+            metrics[id]["init_time"] = time.time()
+        q.put((id, prompt))
+        id += 1
+        time.sleep(sleep_time)
+
+async def send_request(args, q: queue.Queue, finish,batch_size, client, max_tokens, metrics):
+    while not finish[0] and q.empty():
+        continue
+    prompts, ids = [], []
     
+    async with async_metrics_lock:  
+        while len(prompts) < batch_size and not q.empty():
+            id, prompt = q.get()
+            prompts.append(prompt)
+            ids.append(id)
+
     request = {
         "model": args.model,
         "prompt": prompts,
@@ -42,98 +73,122 @@ async def send_data(batched_prompts, client, max_tokens, valid_requests, invalid
         "stream": True
     }
 
-    previous_times = {prompt_idx: time.time() for prompt_idx in range(len(prompts))}
+    previous_times = {idx: time.time() for idx in range(len(prompts))}
+    received_prompts = set()
 
     try:
-        received_prompts = set()
-
         async with client.stream("POST", vllm_server_url, json=request, timeout=1000) as response:
             async for chunk in response.aiter_lines():
-                if  chunk: 
+                if chunk:
                     if chunk.startswith("data:"):
                         chunk = chunk[len("data:"):].strip()
+                            
                     if chunk == "[DONE]":
                         continue
+
                     data = json.loads(chunk)
+                    if "choices" not in data:
+                        print(data)
                     idx = int(data["choices"][0]["index"])
+                    true_id = ids[idx]
                     current_time = time.time()
 
-                    if idx not in received_prompts:
-                        ttfts.append(current_time - previous_times[idx])
-                        received_prompts.add(idx)
+                    async with async_metrics_lock:  
+                        if idx not in received_prompts:
+                            cur_tft = current_time - previous_times[idx]
+                            assert(cur_tft is not None)
+                            metrics[true_id]["TTFT"] = cur_tft 
+                            received_prompts.add(idx)
+                        cur_itl = current_time - previous_times[idx]
+                        assert(cur_itl is not None)
+                        metrics[true_id]["ITLs"].append(cur_itl)
+                        previous_times[idx] = current_time
 
-                    inter_token_latencies.append(current_time - previous_times[idx])
-
-                    previous_times[idx] = current_time
-
-                    async with lock:
-                        total_processed_tokens[0] += 1
-
-        async with lock:
-            valid_requests[0] += 1
+                        if data["choices"][0]["finish_reason"] != "null":
+                            metrics[true_id]["final_time"] = time.time()
 
     except Exception as e:
         print(f"Error during request: {e}")
         traceback.print_exc()
-        async with lock:
-            invalid_requests[0] += 1
 
-
-async def main(num_threads, batched_prompts, valid_requests, invalid_requests, total_processed_tokens, ttfts, inter_token_latencies):
+async def main(q, metrics, prompts, batch_size, max_tokens, nt):
     tasks = []
+    finish = [False]
+
+    send_data_thread_list = []
+    for _ in range(nt):
+        cur_th =  Thread(target=send_data, args=(metrics, q, prompts, args.sleep_time, finish))
+        cur_th.start()
+        send_data_thread_list.append(cur_th)
+
     async with httpx.AsyncClient() as client:
         init_time = time.time()
-        elapsed_time = 0
 
-        while elapsed_time < args.time:
-            for _ in range(num_threads):
-                tasks.append(asyncio.create_task(
-                    send_data(batched_prompts, client, max_tokens=50,valid_requests=valid_requests,
-                              invalid_requests=invalid_requests, total_processed_tokens=total_processed_tokens,
-                              inter_token_latencies=inter_token_latencies, ttfts=ttfts)
-                ))
-            elapsed_time = time.time() - init_time
+        while time.time() - init_time < args.time:
+            tasks.append(asyncio.create_task(
+                send_request(args, q, finish,batch_size, client, max_tokens, metrics)
+            ))
             await asyncio.sleep(args.sleep_time)
 
+
+        finish[0] = True
+        for th in send_data_thread_list:
+            if th.is_alive():  
+                th.join() 
         await asyncio.gather(*tasks)
 
-def run_experiment(batch_size, writer):
-    valid_requests = [0]
-    total_processed_tokens = [0]
-    invalid_requests = [0]
-    inter_token_latencies = []
-    ttfts = []
+def calc_median_and_percentile(vector):
+    array = np.array(vector)
+    return np.median(array), np.percentile(array, 99)
 
-    batched_prompts = [[random.choice(prompts) for _ in range(batch_size)] for _ in range(200)]
+def run_experiment(batch_size, writer, nt):
+    metrics = {}
+    q = queue.Queue()
+    
+    print(f"Starting experiment with batch size = {batch_size}")
+    start_time = time.time()
+    asyncio.run(main(q, metrics, prompts, batch_size, 512,nt))
+    total_time = time.time() - start_time
 
-    init_time = time.time()
-    asyncio.run(main(nt, batched_prompts, valid_requests, invalid_requests, total_processed_tokens, ttfts, inter_token_latencies))
-    total_time = time.time() - init_time
+    latencies, ttfts, itls = [], [], []
+    processed_tokens =  0
+    total_processed_prompts = 0
+    for metric in metrics.values():
+        if metric["TTFT"] == None:
+            continue
+        total_processed_prompts += 1
+        if metric["final_time"] is not None:
+            processed_tokens += metric["num_tokens"]
+            latencies.append(metric["final_time"] - metric["init_time"])
+       
+        ttfts.append(metric["TTFT"])
+        itls += metric["ITLs"]
+    
+    print("Total processed prompts:", total_processed_prompts)
 
-    throughput = total_processed_tokens[0] / total_time
-    inter_token_latencies = np.array(inter_token_latencies)
-    mean_inter_token_latency = inter_token_latencies.mean()
-    ITL_median = np.median(inter_token_latencies)
-    ttfts = np.array(ttfts)
-    mean_ttft = ttfts.mean()
-    ttft_median = np.median(ttfts)
-    prompts_per_sec = valid_requests[0] * batch_size / total_time
-    failure_rate = invalid_requests[0] / (invalid_requests[0] + valid_requests[0])
+    throughput = processed_tokens / total_time
+    ttft_median, ttft_99_pct = calc_median_and_percentile(ttfts)
+    itl_median, itl_99_pct = calc_median_and_percentile(itls)
+    latency_median, latency_99_pct = calc_median_and_percentile(latencies)
 
-    assert(len(ttfts) == valid_requests[0]*batch_size)
-
-    writer.add_scalar("Throughput (tokens/sec) vs Batch Size", throughput, batch_size)
-    writer.add_scalar("Avg ITL (s/token) vs Batch Size", mean_inter_token_latency, batch_size)
-    writer.add_scalar("Median ITL (s/token) vs Batch Size", ITL_median, batch_size)
-    writer.add_scalar("Processed Prompts/sec vs Batch Size", prompts_per_sec, batch_size)
-    writer.add_scalar("Latency vs Batch Size", total_time, batch_size)
-    writer.add_scalar("Mean TTFT (s) vs Batch Size", mean_ttft, batch_size)
-    writer.add_scalar("Median TTFT (s) vs Batch Size", ttft_median, batch_size)
-    writer.add_scalar("Failure Rate vs Batch Size", failure_rate, batch_size)
+    print(f"Results for batch size {batch_size}:")
+    print(f"   Throughput: {throughput:.2f} tokens/s")
+    print(f"   TTFT: Median {ttft_median:.4f}s | 99th Percentile {ttft_99_pct:.4f}s")
+    print(f"   ITL: Median {itl_median:.4f}s | 99th Percentile {itl_99_pct:.4f}s")
+    print(f"   Latency: Median {latency_median:.4f}s | 99th Percentile {latency_99_pct:.4f}s")
+    print(f"   Unprocessed prompts: {len(metrics)- total_processed_prompts}")
+    writer.add_scalar("Throughput", throughput, batch_size)
+    writer.add_scalar("TTFT/Median", ttft_median, batch_size)
+    writer.add_scalar("TTFT/99th Percentile", ttft_99_pct, batch_size)
+    writer.add_scalar("ITL/Median", itl_median, batch_size)
+    writer.add_scalar("ITL/99th Percentile", itl_99_pct, batch_size)
+    writer.add_scalar("Latency/Median", latency_median, batch_size)
+    writer.add_scalar("Latency/99th Percentile", latency_99_pct, batch_size)
+    writer.add_scalar("Unprocessed Prompts", len(metrics) - total_processed_prompts, batch_size)
 
 
 writer = SummaryWriter(f"results/tensorboard_logs/{'chunked_prefill' if args.using_chunked_prefill else 'wo_chunked_prefill'}/")
-nt = 10
+nt = 16
 for batch_size in tqdm([2**k for k in range(12)]):
-    run_experiment(batch_size, writer)
+    run_experiment(batch_size, writer, nt)
 writer.close()
