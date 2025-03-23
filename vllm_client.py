@@ -195,7 +195,7 @@ async def run_experiment(batch_size, writer, nt):
     print(f"   Client/Created prompts per second: {len(metrics) / args.time:.2f}")
     print(f"   Client/Total prompts: {len(metrics)}")
 
-    writer.add_scalar("Metrics/Throughput", throughput, batch_size)
+    writer.add_scalar("Throughput", throughput, batch_size)
     writer.add_scalar("TTFT/Median", ttft_median, batch_size)
     writer.add_scalar("TTFT/99th Percentile", ttft_99_pct, batch_size)
     writer.add_scalar("ITL/Median", itl_median, batch_size)
