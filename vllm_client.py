@@ -16,7 +16,8 @@ parser.add_argument("--time", type=int, default=60, help="Total time for request
 # parser.add_argument("--sleep-time", type=float, default=0.1, help="Sleep time between requests")
 parser.add_argument("--sleep-time-queue", type=float, default=0.1, help="Sleep time between requests")
 parser.add_argument("--sleep-time-request", type=float, default=0.1, help="Sleep time between requests")
-parser.add_argument("--using_chunked_prefill", action="store_true", help="Enable chunked prefill")
+parser.add_argument("--using_chunked_prefill",action="store_true", help="Enable chunked prefill")
+parser.add_argument("--model-seq-len",  type=int, help="")
 
 args = parser.parse_args()
 
@@ -40,10 +41,10 @@ def init_metrics(id, metrics):
     }
 
 
-async def send_data_to_queue(metrics, q: asyncio.Queue, prompts, sleep_time, finish):
+async def send_data_to_queue(metrics, q: asyncio.Queue, prompts, sleep_time, model_seq_len, finish):
     while not finish[0]:
         prompt = random.choice(prompts)
-        if len(prompt) > 2048:
+        if len(prompt) > model_seq_len:
             continue
         async with lock:
             req_id = len(metrics)
@@ -117,11 +118,10 @@ async def continuous_request(q, metrics, prompts, batch_size, max_tokens, nt):
     tasks = []
     finish = [False]
 
-    send_data_tasks = [asyncio.create_task(send_data_to_queue(metrics, q, prompts, args.sleep_time_queue, finish)) for _ in range(nt)]
+    send_data_tasks = [asyncio.create_task(send_data_to_queue(metrics, q, prompts, args.sleep_time_queue, args.model_seq_len, finish)) for _ in range(nt)]
 
     async with httpx.AsyncClient() as client:
         init_time = time.time()
-
         while time.time() - init_time < args.time:
             tasks.append(asyncio.create_task(
                 send_request(args, q, finish, batch_size, client, max_tokens, metrics)
@@ -149,7 +149,7 @@ async def run_experiment(batch_size, writer, nt):
     await asyncio.gather(task1, task2)
     total_time = time.time() - start_time
 
-    latencies, ttfts, itls, prefill_times, decode_times, time_in_queue = [], [], [], [], [], []
+    latencies, ttfts, itls, decode_times, time_in_queue = [], [], [], [], []
     processed_tokens =  0
     total_processed_prompts = 0
     for metric in metrics.values():
@@ -161,7 +161,6 @@ async def run_experiment(batch_size, writer, nt):
         if metric["final_time"] is not None:
             processed_tokens += metric["num_input_tokens"] + len(metric["ITLs"]) + 1
             latencies.append(metric["final_time"] - metric["init_time"])
-            prefill_times.append(metric["prefill_final_time"] - metric["req_init_time"])
             decode_times.append(metric["final_time"] - metric["prefill_final_time"])
             time_in_queue.append(metric["req_init_time"] - metric["init_time"])
        
@@ -170,7 +169,6 @@ async def run_experiment(batch_size, writer, nt):
     ttft_median, ttft_99_pct = calc_median_and_percentile(ttfts)
     itl_median, itl_99_pct = calc_median_and_percentile(itls)
     latency_median, latency_99_pct = calc_median_and_percentile(latencies)
-    prefill_median, prefill_99_pct = calc_median_and_percentile(prefill_times)
     decode_median, decode_99_pct = calc_median_and_percentile(decode_times)
     time_in_queue_median, time_in_queue_99_pct = calc_median_and_percentile(time_in_queue)
 
@@ -188,14 +186,12 @@ async def run_experiment(batch_size, writer, nt):
     print(f"   TTFT: Median {ttft_median:.4f}s | 99th Percentile {ttft_99_pct:.4f}s")
     print(f"   ITL: Median {itl_median:.4f}s | 99th Percentile {itl_99_pct:.4f}s")
     print(f"   Latency: Median {latency_median:.4f}s | 99th Percentile {latency_99_pct:.4f}s")
-    print(f"   Prefill Time: Median {prefill_median:.4f}s | 99th Percentile {prefill_99_pct:.4f}s")
     print(f"   Decode Time: Median {decode_median:.4f}s | 99th Percentile {decode_99_pct:.4f}s")
     print(f"   Time in Queue: Median {time_in_queue_median:.4f}s | 99th Percentile {time_in_queue_99_pct:.4f}s")
     print(f"   Prompts per second: {prompts_per_second:.2f}")
-    print(f"   Unprocessed prompts: {len(metrics) - total_processed_prompts}")
     print(f"   Prompts in queue: {q.qsize()}")
     print(f"   Server/Unprocessed Prompts: {unprocessed_server_prompts}")
-    print(f"   Client/Request prompts per second: {(len(metrics) - q.qsize()) / args.time:.2f}")
+    print(f"   Client/Requested prompts per second: {(len(metrics) - q.qsize()) / args.time:.2f}")
     print(f"   Client/Created prompts per second: {len(metrics) / args.time:.2f}")
     print(f"   Client/Total prompts: {len(metrics)}")
 
@@ -206,23 +202,19 @@ async def run_experiment(batch_size, writer, nt):
     writer.add_scalar("ITL/99th Percentile", itl_99_pct, batch_size)
     writer.add_scalar("Latency/Median", latency_median, batch_size)
     writer.add_scalar("Latency/99th Percentile", latency_99_pct, batch_size)
-    writer.add_scalar("Prefill Time/Median", prefill_median, batch_size)
-    writer.add_scalar("Prefill Time/99th Percentile", prefill_99_pct, batch_size)
     writer.add_scalar("Decode Time/Median", decode_median, batch_size)
     writer.add_scalar("Decode Time/99th Percentile", decode_99_pct, batch_size)
     writer.add_scalar("Server/Unprocessed Prompts", unprocessed_server_prompts, batch_size)
     writer.add_scalar("Server/Processed Prompts per second", prompts_per_second, batch_size)
     writer.add_scalar("Client/Time in Queue Median", time_in_queue_median, batch_size)
-    writer.add_scalar("CLient/Time in Queue 99th Percentile", time_in_queue_99_pct, batch_size)
+    writer.add_scalar("Client/Time in Queue 99th Percentile", time_in_queue_99_pct, batch_size)
     writer.add_scalar("Client/Unprocessed Prompts", q.qsize(), batch_size)
     writer.add_scalar("Client/Requested prompts per second", (len(metrics) - q.qsize()) / args.time, batch_size)
     writer.add_scalar("Client/Created prompts per second", len(metrics) / args.time, batch_size)
     writer.add_scalar("Client/Total prompts", len(metrics), batch_size)
 
-
-
 writer = SummaryWriter(f"results/tensorboard_logs/{'chunked_prefill' if args.using_chunked_prefill else 'wo_chunked_prefill'}/")
-nt = 4
+nt = 12
 for batch_size in tqdm([2**k for k in range(12)]):
     asyncio.run(run_experiment(batch_size, writer, nt))
 writer.close()
