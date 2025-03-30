@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 import httpx
 import time
 import random
@@ -20,7 +21,8 @@ parser.add_argument("--using_chunked_prefill",action="store_true", help="Enable 
 parser.add_argument("--model-seq-len",  type=int, help="")
 
 args = parser.parse_args()
-tokenizer = AutoTokenizer.from_pretrained(args.model)
+model_directory = os.path.dirname(args.model)
+tokenizer = AutoTokenizer.from_pretrained(model_directory)
 ds = load_dataset("data-is-better-together/10k_prompts_ranked")
 prompts = ds["train"]['prompt']
 prompts_len = [len(tokenizer.tokenize(prompt))for prompt in prompts]
