@@ -111,12 +111,14 @@ if __name__ == "__main__":
             outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
             final_time = time.time()
 
-            num_tokens = sum(len(out.outputs[0].token_ids) for out in outputs)
-            elapsed_time = final_time - init_time
-            throughput = num_tokens / elapsed_time
+            num_decoded_tokens = sum(len(out.outputs[0].token_ids) for out in outputs)
+            num_tokens_prompt = sum(len(tokenizer.tokenize(prompt)) for prompt in cur_prompts)
 
-            writer.add_scalar("latency(s)_vs_batch_size", elapsed_time, batch_size)
-            writer.add_scalar("throughput(tok/s)_vs_batch_size", throughput, batch_size)
+            elapsed_time = final_time - init_time
+            throughput = (num_tokens_prompt + num_decoded_tokens) / elapsed_time
+
+            writer.add_scalar("Latency(s) x Batch size", elapsed_time, batch_size)
+            writer.add_scalar("Throughput(tok/s) x Batch size", throughput, batch_size)
 
         event.set()
         thread.join()

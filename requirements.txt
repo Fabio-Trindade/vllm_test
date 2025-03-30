@@ -4,3 +4,4 @@ huggingface
 tensorboard
 httpx
 gputil
+tensorflow

@@ -9,20 +9,21 @@ import numpy as np
 import json
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 parser = argparse.ArgumentParser(description="Request data to LLM server")
 parser.add_argument("--model", type=str, required=True, help="The model to use for requests")
 parser.add_argument("--time", type=int, default=60, help="Total time for requests in seconds")
-# parser.add_argument("--sleep-time", type=float, default=0.1, help="Sleep time between requests")
-parser.add_argument("--sleep-time-queue", type=float, default=0.1, help="Sleep time between requests")
+parser.add_argument("--sleep-time-queue", type=float, default=0.1, help="")
 parser.add_argument("--sleep-time-request", type=float, default=0.1, help="Sleep time between requests")
 parser.add_argument("--using_chunked_prefill",action="store_true", help="Enable chunked prefill")
 parser.add_argument("--model-seq-len",  type=int, help="")
 
 args = parser.parse_args()
-
+tokenizer = AutoTokenizer.from_pretrained(args.model)
 ds = load_dataset("data-is-better-together/10k_prompts_ranked")
 prompts = ds["train"]['prompt']
+prompts_len = [len(tokenizer.tokenize(prompt))for prompt in prompts]
 vllm_server_url = "http://localhost:8000/v1/completions"
 random.seed(1234)
 
@@ -43,13 +44,15 @@ def init_metrics(id, metrics):
 
 async def send_data_to_queue(metrics, q: asyncio.Queue, prompts, sleep_time, model_seq_len, finish):
     while not finish[0]:
-        prompt = random.choice(prompts)
-        if len(prompt) > model_seq_len:
+        idx = random.randint(0,len(prompts)-1)
+        prompt = prompts[idx]
+        prompt_len = prompts_len[idx]
+        if prompt_len > model_seq_len:
             continue
         async with lock:
             req_id = len(metrics)
             init_metrics(req_id, metrics)
-            metrics[req_id]["num_input_tokens"] = len(prompt)
+            metrics[req_id]["num_input_tokens"] = prompt_len
             metrics[req_id]["init_time"] = time.time()
         await q.put((req_id, prompt))
         await asyncio.sleep(sleep_time)
