@@ -73,6 +73,7 @@ def get_args():
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--model", help="")
     parser.add_argument("--tokenizer_path", help="")
+    parser.add_argument("--reverse",action="store_true", help="")
 
     return parser.parse_args()
 

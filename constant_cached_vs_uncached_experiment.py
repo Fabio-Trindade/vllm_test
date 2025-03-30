@@ -11,11 +11,18 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
 
     for enable_apc in [False, True]:
-        for batch_size in [2**i for i in range(4,12)]:
-            cur_prompts = tenk_ds["train"]['prompt'][:batch_size]
-            llm, writer, thread ,event = configure_launcher(args, enable_apc,f"constant_batch_{batch_size}/")
+        for batch_size in [2**i for i in range(4,10)]:
+            if not args.reverse:
+                cur_prompts = tenk_ds["train"]['prompt'][:batch_size]
+            else:
+                cur_prompts = [tenk_ds[0] for _ in range(batch_size)]
+            llm, writer, thread ,event = configure_launcher(args, enable_apc,f"constant_batch_{batch_size}/{"reversed" if args.reverse else "not_reversed"}/")
             for i in range(batch_size):
-                cur_prompts[i] = cur_prompts[0]
+                if not args.reverse:
+                    cur_prompts[i] = cur_prompts[0]
+                else:
+                    cur_prompts[i] = tenk_ds["train"]['prompt'][i]
+
                 init_time = time.time()
                 outputs = llm.generate(cur_prompts, SamplingParams(temperature=0.8, top_p=0.95))
                 final_time = time.time()
