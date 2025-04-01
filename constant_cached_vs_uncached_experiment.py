@@ -38,5 +38,5 @@ if __name__ == "__main__":
             event.set()
             thread.join()
             writer.close()
-            del llm  
+            llm = None
             torch.cuda.empty_cache()
