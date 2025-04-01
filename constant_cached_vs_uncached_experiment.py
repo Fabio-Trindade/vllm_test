@@ -15,7 +15,7 @@ if __name__ == "__main__":
             if not args.reverse:
                 cur_prompts = tenk_ds["train"]['prompt'][:batch_size]
             else:
-                cur_prompts = [tenk_ds[0] for _ in range(batch_size)]
+                cur_prompts = [tenk_ds["train"]["prompt"][0] for _ in range(batch_size)]
             llm, writer, thread ,event = configure_launcher(args, enable_apc,f"constant_batch_{batch_size}/{"reversed" if args.reverse else "not_reversed"}/")
             for i in range(batch_size):
                 if not args.reverse:
@@ -38,5 +38,5 @@ if __name__ == "__main__":
             event.set()
             thread.join()
             writer.close()
-            del llm  
+            llm = None
             torch.cuda.empty_cache()
