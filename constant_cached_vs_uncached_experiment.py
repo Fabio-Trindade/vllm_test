@@ -15,7 +15,7 @@ if __name__ == "__main__":
             if not args.reverse:
                 cur_prompts = tenk_ds["train"]['prompt'][:batch_size]
             else:
-                cur_prompts = [tenk_ds[0] for _ in range(batch_size)]
+                cur_prompts = [tenk_ds["train"]["prompt"][0] for _ in range(batch_size)]
             llm, writer, thread ,event = configure_launcher(args, enable_apc,f"constant_batch_{batch_size}/{"reversed" if args.reverse else "not_reversed"}/")
             for i in range(batch_size):
                 if not args.reverse:
@@ -33,8 +33,8 @@ if __name__ == "__main__":
                 elapsed_time = final_time - init_time
                 throughput = (num_tokens_prompt + num_decoded_tokens) / elapsed_time
 
-                writer.add_scalar("Latency(s) x Batch size", elapsed_time, batch_size)
-                writer.add_scalar("Throughput(tok/s) x Batch size", throughput, batch_size)
+                writer.add_scalar("Latency(s) x Batch size", elapsed_time, i)
+                writer.add_scalar("Throughput(tok/s) x Batch size", throughput, i)
             event.set()
             thread.join()
             writer.close()
