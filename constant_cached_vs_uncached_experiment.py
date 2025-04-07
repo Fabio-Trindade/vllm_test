@@ -17,6 +17,9 @@ if __name__ == "__main__":
             else:
                 cur_prompts = [tenk_ds["train"]["prompt"][0] for _ in range(batch_size)]
             llm, writer, thread ,event = configure_launcher(args, enable_apc,f"constant_batch_{batch_size}/{"reversed" if args.reverse else "not_reversed"}/")
+            outputs = llm.generate(tenk_ds[:256], SamplingParams(temperature=0.8, top_p=0.95))
+            torch.cuda.empty_cache()
+
             for i in range(batch_size):
                 if not args.reverse:
                     cur_prompts[i] = cur_prompts[0]
@@ -35,8 +38,8 @@ if __name__ == "__main__":
 
                 writer.add_scalar("Latency(s) x Batch size", elapsed_time, i)
                 writer.add_scalar("Throughput(tok/s) x Batch size", throughput, i)
+                torch.cuda.empty_cache()
             event.set()
             thread.join()
             writer.close()
             llm = None
-            torch.cuda.empty_cache()

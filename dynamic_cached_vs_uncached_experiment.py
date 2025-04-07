@@ -78,6 +78,7 @@ def get_args():
     return parser.parse_args()
 
 
+
 if __name__ == "__main__":
     args = get_args()
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
@@ -89,7 +90,7 @@ if __name__ == "__main__":
     random.seed(1234)
 
     batch_size = 1
-    while batch_size <= 2048:
+    while batch_size <= 512:
         idxs = [random.randint(0, len(prompts) - 1) for _ in range(batch_size)]
         all_prompt_idx.append(idxs)
         batch_size *= 2
@@ -103,6 +104,10 @@ if __name__ == "__main__":
 
     for enable_apc in [False, True]:
         llm, writer, thread ,event = configure_launcher(args, enable_apc,"dynamic_batch/")
+        #warmup
+        outputs = llm.generate(prompts[:256], SamplingParams(temperature=0.8, top_p=0.95))
+        torch.cuda.empty_cache()
+
         writer.add_text("pct_reused_prompts", str(pct_reused_prompts_list))
         for prompt_idx in all_prompt_idx:
             batch_size = len(prompt_idx)
@@ -120,10 +125,10 @@ if __name__ == "__main__":
 
             writer.add_scalar("Latency(s) x Batch size", elapsed_time, batch_size)
             writer.add_scalar("Throughput(tok/s) x Batch size", throughput, batch_size)
+            torch.cuda.empty_cache()
 
         event.set()
         thread.join()
         writer.close()
         del llm  
-        torch.cuda.empty_cache()
 
