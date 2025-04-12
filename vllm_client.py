@@ -25,7 +25,7 @@ model_directory = os.path.dirname(args.model)
 tokenizer = AutoTokenizer.from_pretrained(model_directory)
 ds = load_dataset("data-is-better-together/10k_prompts_ranked")
 prompts = ds["train"]['prompt']
-prompts_len = [len(tokenizer.tokenize(prompt))for prompt in prompts]
+prompt_lens = [len(tokenizer.tokenize(prompt))for prompt in prompts]
 vllm_server_url = "http://localhost:8000/v1/completions"
 random.seed(1234)
 
@@ -48,7 +48,7 @@ async def send_data_to_queue(metrics, q: asyncio.Queue, prompts, sleep_time, mod
     while not finish[0]:
         idx = random.randint(0,len(prompts)-1)
         prompt = prompts[idx]
-        prompt_len = prompts_len[idx]
+        prompt_len = prompt_lens[idx]
         if prompt_len > model_seq_len:
             continue
         async with lock:

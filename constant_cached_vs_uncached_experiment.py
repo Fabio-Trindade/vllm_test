@@ -17,7 +17,7 @@ if __name__ == "__main__":
             else:
                 cur_prompts = [tenk_ds["train"]["prompt"][0] for _ in range(batch_size)]
             llm, writer, thread ,event = configure_launcher(args, enable_apc,f"constant_batch_{batch_size}/{"reversed" if args.reverse else "not_reversed"}/")
-            outputs = llm.generate(tenk_ds[:256], SamplingParams(temperature=0.8, top_p=0.95))
+            outputs = llm.generate(tenk_ds["train"]["prompt"][:256], SamplingParams(temperature=0.8, top_p=0.95))
             torch.cuda.empty_cache()
 
             for i in range(batch_size):
