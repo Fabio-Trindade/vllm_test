@@ -107,6 +107,7 @@ if __name__ == "__main__":
         #warmup
         outputs = llm.generate(prompts[:256], SamplingParams(temperature=0.8, top_p=0.95))
         torch.cuda.empty_cache()
+        llm.reset_prefix_cache()
 
         writer.add_text("pct_reused_prompts", str(pct_reused_prompts_list))
         for prompt_idx in all_prompt_idx:
@@ -126,6 +127,8 @@ if __name__ == "__main__":
             writer.add_scalar("Latency(s) x Batch size", elapsed_time, batch_size)
             writer.add_scalar("Throughput(tok/s) x Batch size", throughput, batch_size)
             torch.cuda.empty_cache()
+            llm.reset_prefix_cache()
+
 
         event.set()
         thread.join()
